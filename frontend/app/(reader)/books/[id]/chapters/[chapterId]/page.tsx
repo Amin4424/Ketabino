@@ -1,19 +1,20 @@
 'use client';
 // File: app/(reader)/books/[id]/chapters/[chapterId]/page.tsx
-import { use, useState, useEffect, useRef } from 'react';
+import { use, useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Link } from 'next-view-transitions';
-import { Bookmark, Lock, Wallet, ArrowRight, ArrowLeft, Minus, Plus, Highlighter, ChevronLeft } from 'lucide-react';
+import { Lock, Wallet, ArrowRight, ArrowLeft, Minus, Plus, Highlighter, ChevronLeft } from 'lucide-react';
 import { useChapter } from '@/hooks/useChapter';
 import { useBookChapters } from '@/hooks/useBook';
-import { useBookmarks, useHighlights, useReadingProgress } from '@/hooks/useReadingProgress';
+import { useHighlights, useReadingProgress } from '@/hooks/useReadingProgress';
 import { useWallet } from '@/hooks/useWallet';
 import { useAuth } from '@/context/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatCoins } from '@/utils/format';
+import type { Highlight } from '@/types';
 
 export default function ChapterPage({ params }: { params: Promise<{ id: string; chapterId: string }> }) {
   const { id, chapterId } = use(params);
@@ -25,7 +26,6 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
   const { chapter, isLoading, isLocked, purchase } = useChapter(chId);
   const { chapters } = useBookChapters(bookId);
   const { wallet, refetch: refetchWallet } = useWallet();
-  const { addBookmark, bookmarks, fetchBookmarks } = useBookmarks();
   const { highlights, addHighlight, fetchHighlights } = useHighlights(chId);
   const { updateProgress } = useReadingProgress(bookId);
 
@@ -38,23 +38,33 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
   const [selectedText, setSelectedText] = useState('');
   const [highlightPopover, setHighlightPopover] = useState<{ x: number; y: number } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const readerSyncRef = useRef({ chId, fetchHighlights, updateProgress });
 
   useEffect(() => {
-    if (isLocked) setPurchaseModal(true);
+    readerSyncRef.current = { chId, fetchHighlights, updateProgress };
+  });
+
+  useEffect(() => {
+    if (!isLocked) return;
+    Promise.resolve().then(() => setPurchaseModal(true));
   }, [isLocked]);
 
   useEffect(() => {
-    if (chapter && isAuthenticated) {
-      fetchBookmarks();
-      fetchHighlights();
-      // Track reading progress
-      updateProgress(chId, 0);
-    }
+    if (!chapter || !isAuthenticated) return;
+    Promise.resolve().then(() => {
+      const { chId: currentChapterId, fetchHighlights: fetchCurrentHighlights, updateProgress: updateCurrentProgress } = readerSyncRef.current;
+      fetchCurrentHighlights();
+      updateCurrentProgress(currentChapterId, 0);
+    });
   }, [chapter, isAuthenticated]);
 
   const currentIdx = chapters.findIndex(c => c.id === chId);
   const prevChapter = chapters[currentIdx - 1];
   const nextChapter = chapters[currentIdx + 1];
+  const highlightedSegments = useMemo(
+    () => buildHighlightedSegments(chapter?.content ?? '', highlights),
+    [chapter?.content, highlights]
+  );
 
   function handleTextSelection() {
     const sel = window.getSelection();
@@ -70,21 +80,15 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
 
   async function handleAddHighlight() {
     if (!selectedText || !isAuthenticated) return;
-    const sel = window.getSelection();
-    if (!sel) return;
-    const range = sel.getRangeAt(0);
+    const offsets = getCurrentSelectionOffsets(contentRef.current);
+    if (!offsets) return;
     await addHighlight(
-      range.startOffset, range.endOffset,
+      offsets.start, offsets.end,
       selectedText, highlightColor
     );
     setHighlightPopover(null);
     setSelectedText('');
-    sel.removeAllRanges();
-  }
-
-  async function handleBookmark() {
-    if (!isAuthenticated) { router.push('/login'); return; }
-    await addBookmark(chId, Math.round(window.scrollY));
+    window.getSelection()?.removeAllRanges();
   }
 
   async function handlePurchase() {
@@ -142,9 +146,6 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
               style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: `2px solid ${highlightColor === c ? 'white' : 'transparent'}`, cursor: 'pointer' }} />
           ))}
 
-          <button onClick={handleBookmark} title="افزودن نشانک" style={{ ...iconBtn, color: 'var(--accent-gold)' }}>
-            <Bookmark size={16} />
-          </button>
         </div>
       </div>
 
@@ -176,7 +177,21 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
             whiteSpace: 'pre-wrap',
           }}
         >
-          {chapter.content}
+          {highlightedSegments.map((segment, index) => segment.highlight ? (
+            <mark
+              key={`${segment.start}-${segment.end}-${index}`}
+              style={{
+                background: withAlpha(segment.highlight.color, '55'),
+                color: 'inherit',
+                borderRadius: 4,
+                padding: '0 2px',
+              }}
+            >
+              {segment.text}
+            </mark>
+          ) : (
+            <span key={`${segment.start}-${segment.end}-${index}`}>{segment.text}</span>
+          ))}
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-muted)' }}>
@@ -284,3 +299,90 @@ const iconBtn: React.CSSProperties = {
   alignItems: 'center', justifyContent: 'center',
   cursor: 'pointer', color: 'var(--text-secondary)',
 };
+
+interface HighlightSegment {
+  text: string;
+  start: number;
+  end: number;
+  highlight?: Highlight;
+}
+
+function buildHighlightedSegments(content: string, highlights: Highlight[]): HighlightSegment[] {
+  if (!content) return [];
+
+  const validHighlights = highlights
+    .filter(item => item.startChar >= 0 && item.endChar > item.startChar && item.startChar < content.length)
+    .map(item => ({ ...item, endChar: Math.min(item.endChar, content.length) }))
+    .sort((a, b) => a.startChar - b.startChar || b.endChar - a.endChar);
+
+  const segments: HighlightSegment[] = [];
+  let cursor = 0;
+
+  for (const highlight of validHighlights) {
+    if (highlight.startChar < cursor) continue;
+
+    if (highlight.startChar > cursor) {
+      segments.push({
+        text: content.slice(cursor, highlight.startChar),
+        start: cursor,
+        end: highlight.startChar,
+      });
+    }
+
+    segments.push({
+      text: content.slice(highlight.startChar, highlight.endChar),
+      start: highlight.startChar,
+      end: highlight.endChar,
+      highlight,
+    });
+    cursor = highlight.endChar;
+  }
+
+  if (cursor < content.length) {
+    segments.push({
+      text: content.slice(cursor),
+      start: cursor,
+      end: content.length,
+    });
+  }
+
+  return segments;
+}
+
+function getCurrentSelectionOffsets(container: HTMLElement | null): { start: number; end: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !container || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+
+  const start = getTextOffset(container, range.startContainer, range.startOffset);
+  const end = getTextOffset(container, range.endContainer, range.endOffset);
+  if (start === null || end === null || start === end) return null;
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end),
+  };
+}
+
+function getTextOffset(container: HTMLElement, targetNode: Node, targetOffset: number): number | null {
+  let offset = 0;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+
+  while (node) {
+    if (node === targetNode) {
+      return offset + targetOffset;
+    }
+
+    offset += node.textContent?.length ?? 0;
+    node = walker.nextNode();
+  }
+
+  return null;
+}
+
+function withAlpha(color: string, alpha: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alpha}` : color;
+}
