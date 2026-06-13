@@ -1,6 +1,6 @@
 'use client';
 // File: app/(reader)/home/page.tsx
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Search, Sparkles, TrendingUp, Clock } from 'lucide-react';
@@ -16,6 +16,13 @@ function HomeContent() {
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [inputValue, setInputValue] = useState(searchParams.get('search') || '');
 
+  // Sync search state when URL changes (e.g. from header search)
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || '';
+    setSearch(urlSearch);
+    setInputValue(urlSearch);
+  }, [searchParams]);
+
   const { books, isLoading } = useBooks(selectedGenre, search);
   const { genres } = useGenres();
 
@@ -23,6 +30,7 @@ function HomeContent() {
     e.preventDefault();
     setSearch(inputValue);
   }
+
 
   const featured = books.slice(0, 3);
   const rest = books.slice(3);

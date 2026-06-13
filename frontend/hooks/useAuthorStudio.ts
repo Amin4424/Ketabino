@@ -30,7 +30,7 @@ export function useAuthorStudio() {
 
   useEffect(() => {
     if (!authLoading) {
-      fetchAll();
+      Promise.resolve().then(fetchAll);
     }
   }, [fetchAll, authLoading]);
 
@@ -40,6 +40,13 @@ export function useAuthorStudio() {
     const res = await api.post<{ bookId: number }>('/writerstudio/book', data);
     await fetchAll();
     return res.bookId;
+  }, [fetchAll]);
+
+  const updateBook = useCallback(async (bookId: number, data: {
+    title: string; description: string; coverImage: string; genreIds: number[]; status: string;
+  }) => {
+    await api.put(`/writerstudio/book/${bookId}`, data);
+    await fetchAll();
   }, [fetchAll]);
 
   const createChapter = useCallback(async (bookId: number, data: {
@@ -57,5 +64,9 @@ export function useAuthorStudio() {
     await api.put(`/writerstudio/chapter/${chapterId}`, data);
   }, []);
 
-  return { books, stats, isLoading, createBook, createChapter, getBookChapters, updateChapter, refetch: fetchAll };
+  const deleteChapter = useCallback(async (chapterId: number) => {
+    await api.delete(`/writerstudio/chapter/${chapterId}`);
+  }, []);
+
+  return { books, stats, isLoading, createBook, updateBook, createChapter, getBookChapters, updateChapter, deleteChapter, refetch: fetchAll };
 }

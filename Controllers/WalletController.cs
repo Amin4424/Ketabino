@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
 using Ketabino.Models;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -133,6 +134,11 @@ namespace Ketabino.Controllers
                 await txCmd.ExecuteNonQueryAsync();
 
                 transaction.Commit();
+
+                await NotificationHelper.SendAsync(_db, userId,
+                    "🪙 خرید موفق",
+                    $"خرید «{packageName}» با موفقیت انجام شد. {coins:N0} سکه به کیف پول شما اضافه گردید.");
+
                 return Ok(new { Message = "خرید سکه با موفقیت انجام شد و کیف پول شارژ گردید.", NewCoinsAdded = coins });
             }
             catch (Exception ex)

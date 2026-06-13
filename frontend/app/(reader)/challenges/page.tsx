@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, Award, CheckCircle, Circle, Play, Coins, AlertCircle } from 'lucide-react';
+import { Trophy, Award, CheckCircle, Circle, Play, Coins, AlertCircle, Flag } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useWallet } from '@/hooks/useWallet';
+import { useNotifications } from '@/hooks/useNotifications';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatCoins } from '@/utils/format';
@@ -25,6 +26,7 @@ interface Challenge {
 
 export default function ChallengesPage() {
   const { wallet, refetch: refetchWallet } = useWallet();
+  const { refetch: refetchNotifications } = useNotifications();
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
@@ -84,8 +86,23 @@ export default function ChallengesPage() {
       showToast(res.message, 'success');
       await fetchChallenges();
       await refetchWallet(); // refresh coins in header & page
+      await refetchNotifications(); // refresh notifications bell
     } catch (err: any) {
       showToast(err.message || 'خطا در دریافت جایزه', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleDone(id: number) {
+    try {
+      setActionLoading(id);
+      const res = await api.post<{ message: string }>(`/challenge/${id}/done`, {});
+      showToast(res.message, 'success');
+      await fetchChallenges();
+      await refetchNotifications(); // notification will be sent from backend
+    } catch (err: any) {
+      showToast(err.message || 'خطا در ثبت انجام چالش', 'error');
     } finally {
       setActionLoading(null);
     }
@@ -306,8 +323,21 @@ export default function ChallengesPage() {
                         >
                           {actionLoading === c.id ? 'در حال ثبت…' : 'ثبت پیشرفت (تست +۱)'}
                         </Button>
+                        <Button
+                          onClick={() => handleDone(c.id)}
+                          disabled={actionLoading === c.id}
+                          className="w-full sm:w-auto"
+                          style={{
+                            background: 'linear-gradient(135deg, var(--accent-violet), #7c3aed)',
+                            color: '#fff',
+                            fontWeight: 700
+                          }}
+                        >
+                          <Flag size={15} />
+                          {actionLoading === c.id ? 'در حال ثبت…' : '✅ انجام دادم'}
+                        </Button>
                         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', alignSelf: 'center', margin: 0 }} className="text-center sm:text-right">
-                          (از دکمه بالا برای شبیه‌سازی بالا رفتن پیشرفت مطالعه چالش استفاده کنید)
+                          (برای شبیه‌سازی پیشرفت از «ثبت پیشرفت» و برای اعلام اتمام از «انجام دادم» استفاده کنید)
                         </p>
                       </>
                     ) : !hasClaimed ? (

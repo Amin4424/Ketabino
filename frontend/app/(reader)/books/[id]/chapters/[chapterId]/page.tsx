@@ -30,6 +30,7 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
   const { updateProgress } = useReadingProgress(bookId);
 
   const [fontSize, setFontSize] = useState(18);
+  const [textColor, setTextColor] = useState('var(--text-primary)');
   const [purchaseModal, setPurchaseModal] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [purchaseError, setPurchaseError] = useState('');
@@ -63,7 +64,8 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     setSelectedText(text);
-    setHighlightPopover({ x: rect.left + rect.width / 2, y: rect.top - 48 + window.scrollY });
+    // Use fixed positioning relative to viewport
+    setHighlightPopover({ x: rect.left + rect.width / 2, y: rect.top - 52 });
   }
 
   async function handleAddHighlight() {
@@ -119,9 +121,23 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
         <span style={{ fontSize: '0.85rem', minWidth: 28, textAlign: 'center' }}>{fontSize}</span>
         <button onClick={() => setFontSize(f => Math.min(28, f + 1))} style={iconBtn}><Plus size={14} /></button>
 
-        <div style={{ marginRight: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginRight: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Text color picker */}
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>رنگ متن:</span>
+          {(['var(--text-primary)', '#C9A84C', '#8B5CF6', '#10B981', '#F43F5E'] as const).map(c => (
+            <button key={c} onClick={() => setTextColor(c)}
+              style={{
+                width: 20, height: 20, borderRadius: '50%',
+                background: c === 'var(--text-primary)' ? 'var(--text-primary)' : c,
+                border: `2.5px solid ${textColor === c ? 'white' : 'transparent'}`,
+                cursor: 'pointer',
+                boxShadow: textColor === c ? '0 0 0 1px rgba(255,255,255,0.4)' : 'none',
+              }} />
+          ))}
+
           {/* Highlight color picker */}
-          {['#C9A84C', '#8B5CF6', '#10B981', '#F43F5E'].map(c => (
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginRight: 4 }}>هایلایت:</span>
+          {(['#C9A84C', '#8B5CF6', '#10B981', '#F43F5E'] as const).map(c => (
             <button key={c} onClick={() => setHighlightColor(c)}
               style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: `2px solid ${highlightColor === c ? 'white' : 'transparent'}`, cursor: 'pointer' }} />
           ))}
@@ -154,7 +170,7 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
           onMouseUp={handleTextSelection}
           style={{
             fontSize: fontSize, lineHeight: 2.2,
-            color: 'var(--text-primary)',
+            color: textColor,
             fontFamily: 'Vazirmatn, serif',
             userSelect: 'text',
             whiteSpace: 'pre-wrap',
@@ -168,7 +184,7 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
         </div>
       )}
 
-      {/* Highlight popover */}
+      {/* Highlight popover - fixed so it stays near selection regardless of scroll */}
       <AnimatePresence>
         {highlightPopover && selectedText && (
           <motion.div
@@ -176,14 +192,14 @@ export default function ChapterPage({ params }: { params: Promise<{ id: string; 
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
             style={{
-              position: 'absolute', top: highlightPopover.y, left: highlightPopover.x,
+              position: 'fixed', top: highlightPopover.y, left: highlightPopover.x,
               transform: 'translateX(-50%)',
               background: 'var(--bg-elevated)',
               border: '1px solid var(--border-default)',
               borderRadius: 'var(--radius-md)',
               padding: '6px 10px',
               display: 'flex', gap: 8, alignItems: 'center',
-              zIndex: 300, boxShadow: 'var(--shadow-card)',
+              zIndex: 1000, boxShadow: 'var(--shadow-card)',
             }}
           >
             <button onClick={handleAddHighlight} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: highlightColor, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem' }}>

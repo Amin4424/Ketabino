@@ -47,7 +47,7 @@ export function Header() {
     getClientMountedSnapshot,
     getServerMountedSnapshot,
   );
-  const isDarkTheme = resolvedTheme === 'dark';
+  const isDarkTheme = mounted ? resolvedTheme === 'dark' : false;
   const nextTheme = isDarkTheme ? 'light' : 'dark';
 
   useEffect(() => {

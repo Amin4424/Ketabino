@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -171,6 +172,12 @@ namespace Ketabino.Controllers
                 await joinCmd.ExecuteNonQueryAsync();
 
                 transaction.Commit();
+
+                // Notify creator
+                await NotificationHelper.SendAsync(_db, userId,
+                    "📚 گروه کتابخوانی ایجاد شد",
+                    $"گروه «{request.Name}» با موفقیت ایجاد شد. شما به عنوان سازنده گروه به صورت خودکار عضو شدید.");
+
                 return Ok(new { Message = "گروه کتابخوانی با موفقیت ایجاد شد.", ClubId = clubId });
             }
             catch (Exception ex)
@@ -206,6 +213,14 @@ namespace Ketabino.Controllers
                 new SqliteParameter("userId", userId)
             });
 
+            // Fetch club name for notification
+            var clubNameSql = "SELECT NAME FROM BOOK_CLUBS WHERE ID = :id";
+            var clubName = (await _db.ExecuteScalarAsync(clubNameSql, new[] { new SqliteParameter("id", id) }))?.ToString() ?? "گروه";
+
+            await NotificationHelper.SendAsync(_db, userId,
+                "👥 عضویت در گروه کتابخوانی",
+                $"شما با موفقیت به گروه «{clubName}» پیوستید.");
+
             return Ok(new { Message = "شما با موفقیت عضو گروه شدید." });
         }
 
@@ -227,6 +242,14 @@ namespace Ketabino.Controllers
             });
 
             if (rows == 0) return BadRequest(new { Message = "شما عضو این گروه نیستید." });
+
+            // Fetch club name for notification
+            var clubNameSql2 = "SELECT NAME FROM BOOK_CLUBS WHERE ID = :id";
+            var clubName2 = (await _db.ExecuteScalarAsync(clubNameSql2, new[] { new SqliteParameter("id", id) }))?.ToString() ?? "گروه";
+
+            await NotificationHelper.SendAsync(_db, userId,
+                "🚪 خروج از گروه کتابخوانی",
+                $"شما گروه «{clubName2}» را ترک کردید.");
 
             return Ok(new { Message = "شما گروه را ترک کردید." });
         }

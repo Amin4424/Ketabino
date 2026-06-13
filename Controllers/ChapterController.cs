@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
 using Ketabino.Models;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -41,7 +42,7 @@ namespace Ketabino.Controllers
                             ELSE 0 END AS IS_PURCHASED
                 FROM CHAPTERS c
                 JOIN BOOKS b ON c.BOOK_ID = b.ID
-                WHERE c.BOOK_ID = :bookId AND c.STATUS = 'Published'
+                WHERE c.BOOK_ID = :bookId AND (c.STATUS = 'Published' OR b.AUTHOR_ID = :userId4)
                 ORDER BY c.SEQUENCE_NUMBER ASC";
 
             var parameters = new[]
@@ -49,6 +50,7 @@ namespace Ketabino.Controllers
                 new SqliteParameter("userId", userId),
                 new SqliteParameter("userId2", userId),
                 new SqliteParameter("userId3", userId),
+                new SqliteParameter("userId4", userId),
                 new SqliteParameter("bookId", bookId)
             };
 
@@ -315,6 +317,17 @@ namespace Ketabino.Controllers
                 await txAuthorCmd.ExecuteNonQueryAsync();
 
                 transaction.Commit();
+
+                // Notify buyer
+                await NotificationHelper.SendAsync(_db, userId,
+                    "📖 خرید فصل موفق",
+                    $"فصل «{chapterTitle}» از کتاب «{bookTitle}» با موفقیت خریداری شد و اکنون در دسترس شماست.");
+
+                // Notify author about sale
+                await NotificationHelper.SendAsync(_db, authorId,
+                    "💰 فروش جدید",
+                    $"فصل «{chapterTitle}» از کتاب «{bookTitle}» توسط یک خواننده خریداری شد. {price:N0} سکه به کیف پول شما اضافه گردید.");
+
                 return Ok(new { Message = "خرید فصل با موفقیت انجام شد." });
             }
             catch (Exception ex)

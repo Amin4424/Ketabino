@@ -30,14 +30,17 @@ async function request<T>(
 
   if (!res.ok) {
     let message = 'خطایی رخ داد';
-    let data: any = null;
+    let data: unknown = null;
     try {
       data = await res.json();
-      message = data.message || message;
+      if (data && typeof data === 'object') {
+        const body = data as { message?: string; Message?: string; error?: string; Error?: string; title?: string };
+        message = body.message || body.Message || body.error || body.Error || body.title || message;
+      }
     } catch {
-      //
+      message = res.statusText || message;
     }
-    const err = new Error(message) as Error & { status: number; data?: any };
+    const err = new Error(message) as Error & { status: number; data?: unknown };
     err.status = res.status;
     err.data = data;
     throw err;

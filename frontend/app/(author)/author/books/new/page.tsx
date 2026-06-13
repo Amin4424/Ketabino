@@ -8,7 +8,6 @@ import { useAuthorStudio } from '@/hooks/useAuthorStudio';
 import { useGenres } from '@/hooks/useBooks';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 
 interface ChapterDraft {
   title: string;
@@ -30,7 +29,6 @@ export default function NewBookPage() {
   const [description, setDescription] = useState('');
   const [coverImage, setCoverImage] = useState('');
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
-  const [bookStatus, setBookStatus] = useState<'Draft' | 'Published'>('Draft');
 
   // Chapters
   const [chapters, setChapters] = useState<ChapterDraft[]>([
@@ -72,7 +70,8 @@ export default function NewBookPage() {
     setIsSubmitting(true);
     setError('');
     try {
-      const bookId = await createBook({ title, description, coverImage, genreIds: selectedGenres, status: bookStatus });
+      const nextBookStatus = chapters.some(ch => ch.status === 'Published') ? 'Published' : 'Draft';
+      const bookId = await createBook({ title, description, coverImage, genreIds: selectedGenres, status: nextBookStatus });
       // Create chapters
       for (const ch of chapters) {
         if (ch.title.trim()) {
@@ -115,21 +114,6 @@ export default function NewBookPage() {
 
             <label style={labelStyle}>لینک تصویر جلد (URL)</label>
             <input value={coverImage} onChange={e => setCoverImage(e.target.value)} placeholder="https://…" style={{ ...inputStyle, marginBottom: 14 }} dir="ltr" />
-
-            <label style={labelStyle}>وضعیت</label>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              {(['Draft', 'Published'] as const).map(s => (
-                <button key={s} onClick={() => setBookStatus(s)} style={{
-                  flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-md)',
-                  border: `1px solid ${bookStatus === s ? 'var(--accent-gold)' : 'var(--border-default)'}`,
-                  background: bookStatus === s ? 'var(--accent-gold-glow)' : 'var(--bg-elevated)',
-                  color: bookStatus === s ? 'var(--accent-gold)' : 'var(--text-secondary)',
-                  cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.88rem',
-                }}>
-                  {s === 'Draft' ? '📝 پیش‌نویس' : '🚀 منتشر شده'}
-                </button>
-              ))}
-            </div>
 
             <label style={labelStyle}>ژانر</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -225,7 +209,7 @@ export default function NewBookPage() {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24, gap: 10 }}>
         <Button variant="ghost" onClick={() => router.push('/author')}>انصراف</Button>
         <Button isLoading={isSubmitting} onClick={handleSubmit} size="lg">
-          {bookStatus === 'Published' ? '🚀 انتشار کتاب' : '💾 ذخیره پیش‌نویس'}
+          ذخیره کتاب
         </Button>
       </div>
     </div>

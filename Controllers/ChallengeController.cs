@@ -30,7 +30,8 @@ namespace Ketabino.Controllers
                 SELECT c.ID, c.TITLE, c.DESCRIPTION, c.TARGET_TYPE, c.TARGET_COUNT, c.COIN_REWARD, c.END_DATE,
                        IFNULL(uc.CURRENT_PROGRESS, 0) AS CURRENT_PROGRESS,
                        IFNULL(uc.IS_COMPLETED, 0) AS IS_COMPLETED,
-                       uc.CLAIMED_AT
+                       uc.CLAIMED_AT,
+                       CASE WHEN uc.USER_ID IS NOT NULL THEN 1 ELSE 0 END AS JOINED
                 FROM CHALLENGES c
                 LEFT JOIN USER_CHALLENGES uc ON c.ID = uc.CHALLENGE_ID AND uc.USER_ID = :userId
                 WHERE c.IS_ACTIVE = 1
@@ -48,21 +49,12 @@ namespace Ketabino.Controllers
                 CurrentProgress = Convert.ToInt32(reader["CURRENT_PROGRESS"]),
                 IsCompleted = Convert.ToInt32(reader["IS_COMPLETED"]) == 1,
                 ClaimedAt = reader["CLAIMED_AT"] == DBNull.Value ? null : (DateTime?)SqliteDbHelper.GetUtcDateTime(reader["CLAIMED_AT"]),
-                Joined = reader["CLAIMED_AT"] != DBNull.Value || Convert.ToInt32(reader["CURRENT_PROGRESS"]) > 0 || ucRowExists(reader)
+                Joined = Convert.ToInt32(reader["JOINED"]) == 1
             });
 
             return Ok(challenges);
         }
 
-        private static bool ucRowExists(System.Data.IDataReader reader)
-        {
-            // If CURRENT_PROGRESS exists but is 0, we can determine if the user joined.
-            // For simplicity, if we get progress, we can treat it as joined if the row is in database.
-            // In SQL query, we left join, so if uc.CHALLENGE_ID is null, they haven't joined.
-            // But we don't select challenge_id. Let's just assume if they have a non-null CLAIMED_AT or they started progress, they joined, 
-            // or we check if progress > 0.
-            return false; 
-        }
 
         [HttpPost("{id}/join")]
         public async Task<IActionResult> JoinChallenge(long id)
@@ -127,7 +119,73 @@ namespace Ketabino.Controllers
                 new SqliteParameter("challengeId", id)
             });
 
+            // If just completed, send a notification
+            if (isCompleted == 1 && state.CurrentProgress < targetCount)
+            {
+                var notifSql = @"
+                    INSERT INTO NOTIFICATIONS (USER_ID, TITLE, MESSAGE, IS_READ) 
+                    VALUES (:userId, :title, :msg, 0)";
+                await _db.ExecuteNonQueryAsync(notifSql, new[]
+                {
+                    new SqliteParameter("userId", userId),
+                    new SqliteParameter("title", "🏆 چالش تکمیل شد!"),
+                    new SqliteParameter("msg", $"تبریک! چالش را با موفقیت تکمیل کردید. برای دریافت جایزه به صفحه چالش‌ها بروید.")
+                });
+            }
+
             return Ok(new { Message = "پیشرفت چالش بروزرسانی شد.", Progress = newProgress, IsCompleted = isCompleted == 1 });
+        }
+
+        [HttpPost("{id}/done")]
+        public async Task<IActionResult> MarkAsDone(long id)
+        {
+            long userId = long.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+            // Check if joined
+            var checkSql = "SELECT CURRENT_PROGRESS, IS_COMPLETED, TARGET_COUNT FROM USER_CHALLENGES uc JOIN CHALLENGES c ON uc.CHALLENGE_ID = c.ID WHERE uc.USER_ID = :userId AND uc.CHALLENGE_ID = :challengeId AND c.IS_ACTIVE = 1";
+            var state = await _db.QuerySingleOrDefaultAsync(checkSql, new[] {
+                new SqliteParameter("userId", userId),
+                new SqliteParameter("challengeId", id)
+            }, reader => new {
+                CurrentProgress = Convert.ToInt32(reader["CURRENT_PROGRESS"]),
+                IsCompleted = Convert.ToInt32(reader["IS_COMPLETED"]) == 1,
+                TargetCount = Convert.ToInt32(reader["TARGET_COUNT"])
+            });
+
+            if (state == null) return BadRequest(new { Message = "ابتدا باید به این چالش بپیوندید." });
+            if (state.IsCompleted) return BadRequest(new { Message = "این چالش قبلاً تکمیل شده است." });
+
+            // Get challenge title and reward
+            var getSql = "SELECT TITLE, COIN_REWARD FROM CHALLENGES WHERE ID = :id";
+            var challenge = await _db.QuerySingleOrDefaultAsync(getSql, new[] { new SqliteParameter("id", id) }, reader => new
+            {
+                Title = reader["TITLE"].ToString()!,
+                CoinReward = Convert.ToInt32(reader["COIN_REWARD"])
+            });
+
+            // Mark as completed
+            var updateSql = "UPDATE USER_CHALLENGES SET CURRENT_PROGRESS = :progress, IS_COMPLETED = 1 WHERE USER_ID = :userId AND CHALLENGE_ID = :challengeId";
+            await _db.ExecuteNonQueryAsync(updateSql, new[] {
+                new SqliteParameter("progress", state.TargetCount),
+                new SqliteParameter("userId", userId),
+                new SqliteParameter("challengeId", id)
+            });
+
+            // Send notification about completing the challenge
+            if (challenge != null)
+            {
+                var notifSql = @"
+                    INSERT INTO NOTIFICATIONS (USER_ID, TITLE, MESSAGE, IS_READ) 
+                    VALUES (:userId, :title, :msg, 0)";
+                await _db.ExecuteNonQueryAsync(notifSql, new[]
+                {
+                    new SqliteParameter("userId", userId),
+                    new SqliteParameter("title", "🏆 چالش تکمیل شد!"),
+                    new SqliteParameter("msg", $"تبریک! چالش «{challenge.Title}» را با موفقیت تکمیل کردید. برای دریافت {challenge.CoinReward} سکه جایزه، روی «دریافت جایزه» کلیک کنید.")
+                });
+            }
+
+            return Ok(new { Message = "چالش با موفقیت انجام شد! جایزه آماده دریافت است." });
         }
 
         [HttpPost("{id}/claim")]

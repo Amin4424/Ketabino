@@ -122,6 +122,11 @@ namespace Ketabino.Controllers
                 return NotFound(new { Message = "کاربری با این شماره موبایل یافت نشد. ابتدا ثبت‌نام کنید." });
             }
 
+            // Send login notification
+            await NotificationHelper.SendAsync(_db, user.Id,
+                "✅ ورود موفق",
+                $"خوش آمدید {user.Name}! ورود شما به کتابینو با موفقیت انجام شد.");
+
             var token = _jwt.GenerateToken(user.Id, user.PhoneNumber, user.Role);
 
             return Ok(new AuthResponse

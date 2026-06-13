@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
 using Ketabino.Models;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -155,6 +156,11 @@ namespace Ketabino.Controllers
                 await subCmd.ExecuteNonQueryAsync();
 
                 transaction.Commit();
+
+                await NotificationHelper.SendAsync(_db, userId,
+                    "⭐ اشتراک فعال شد!",
+                    $"اشتراک «{planName}» با موفقیت خریداری شد. دسترسی شما تا {endDate:yyyy/MM/dd} فعال است.");
+
                 return Ok(new { Message = "اشتراک با موفقیت خریداری شد.", ActiveUntil = endDate });
             }
             catch (Exception ex)

@@ -122,6 +122,9 @@ export default function AuthorStudioPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
+                <Link href={`/author/books/${book.id}/edit`}>
+                  <Button variant="ghost" size="sm"><Pencil size={14} />ویرایش</Button>
+                </Link>
                 <Link href={`/books/${book.id}`}>
                   <Button variant="ghost" size="sm"><Eye size={14} />مشاهده</Button>
                 </Link>

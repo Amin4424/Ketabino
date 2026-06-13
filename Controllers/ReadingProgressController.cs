@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
 using Ketabino.Models;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -132,6 +133,15 @@ namespace Ketabino.Controllers
             };
 
             await _db.ExecuteNonQueryAsync(sql, parameters);
+
+            // Get chapter title for notification
+            var chTitleSql = "SELECT c.TITLE, b.TITLE AS BOOK_TITLE FROM CHAPTERS c JOIN BOOKS b ON c.BOOK_ID = b.ID WHERE c.ID = :chId";
+            var chInfo = await _db.QuerySingleOrDefaultAsync(chTitleSql, new[] { new SqliteParameter("chId", request.ChapterId) }, r => new { ChapterTitle = r["TITLE"].ToString()!, BookTitle = r["BOOK_TITLE"].ToString()! });
+
+            await NotificationHelper.SendAsync(_db, userId,
+                "🔖 نشانک اضافه شد",
+                chInfo != null ? $"نشانک در فصل «{chInfo.ChapterTitle}» از کتاب «{chInfo.BookTitle}» ثبت شد." : "نشانک جدید با موفقیت اضافه شد.");
+
             return Ok(new { Message = "نشانک با موفقیت ایجاد شد." });
         }
 
@@ -217,6 +227,11 @@ namespace Ketabino.Controllers
             };
 
             await _db.ExecuteNonQueryAsync(sql, parameters);
+
+            await NotificationHelper.SendAsync(_db, userId,
+                "📌 هایلایت اضافه شد",
+                $"متن «{request.TextContent[..Math.Min(30, request.TextContent.Length)]}...» با رنگ {request.Color} هایلایت شد.");
+
             return Ok(new { Message = "متن با موفقیت هایلایت شد." });
         }
 

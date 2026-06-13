@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Ketabino.Database;
 using Ketabino.Models;
+using Ketabino.Services;
 
 namespace Ketabino.Controllers
 {
@@ -108,17 +109,19 @@ namespace Ketabino.Controllers
 
             var sql = @"
                 SELECT b.ID, b.AUTHOR_ID, u.NAME AS AUTHOR_NAME, b.TITLE, b.DESCRIPTION, b.COVER_IMAGE, b.STATUS, b.CREATED_AT, b.UPDATED_AT,
-                       (SELECT COUNT(*) FROM CHAPTERS c WHERE c.BOOK_ID = b.ID AND c.STATUS = 'Published') AS CHAPTERS_COUNT,
+                       (SELECT COUNT(*) FROM CHAPTERS c WHERE c.BOOK_ID = b.ID AND (c.STATUS = 'Published' OR b.AUTHOR_ID = :userId2)) AS CHAPTERS_COUNT,
                        (SELECT COUNT(*) FROM LIKES l WHERE l.BOOK_ID = b.ID) AS LIKES_COUNT,
                        COALESCE((SELECT AVG(r.RATING) FROM REVIEWS r WHERE r.BOOK_ID = b.ID), 0.0) AS AVG_RATING,
                        EXISTS(SELECT 1 FROM LIKES l WHERE l.BOOK_ID = b.ID AND l.USER_ID = :userId) AS IS_LIKED
                 FROM BOOKS b
                 JOIN USERS u ON b.AUTHOR_ID = u.ID
-                WHERE b.ID = :id AND b.STATUS = 'Published'";
+                WHERE b.ID = :id AND (b.STATUS = 'Published' OR b.AUTHOR_ID = :userId3)";
 
             var book = await _db.QuerySingleOrDefaultAsync(sql, new[] { 
                 new SqliteParameter("id", id),
-                new SqliteParameter("userId", userId)
+                new SqliteParameter("userId", userId),
+                new SqliteParameter("userId2", userId),
+                new SqliteParameter("userId3", userId)
             }, MapBookResponse);
 
             if (book == null)
@@ -190,6 +193,23 @@ namespace Ketabino.Controllers
                 new SqliteParameter("userId", userId),
                 new SqliteParameter("bookId", id)
             });
+
+            // Fetch book info for notification
+            var bookInfoSql = "SELECT b.TITLE, b.AUTHOR_ID FROM BOOKS b WHERE b.ID = :bookId";
+            var bookInfo = await _db.QuerySingleOrDefaultAsync(bookInfoSql,
+                new[] { new SqliteParameter("bookId", id) },
+                r => new { Title = r["TITLE"].ToString()!, AuthorId = Convert.ToInt64(r["AUTHOR_ID"]) });
+
+            // Notify the liker
+            await NotificationHelper.SendAsync(_db, userId,
+                "❤️ کتاب پسندیده شد",
+                $"کتاب «{bookInfo?.Title ?? ""}» به لیست علاقه‌مندی‌های شما اضافه شد.");
+
+            // Notify the author
+            if (bookInfo != null)
+                await NotificationHelper.SendAsync(_db, bookInfo.AuthorId,
+                    "❤️ کتابت پسندیده شد!",
+                    $"یک خواننده کتاب «{bookInfo.Title}» شما را پسندید.");
 
             return Ok(new { Message = "کتاب با موفقیت پسندیده شد." });
         }
@@ -290,6 +310,23 @@ namespace Ketabino.Controllers
                 new SqliteParameter("title", SqliteDbHelper.ToDbValue(request.Title)),
                 new SqliteParameter("content", SqliteDbHelper.ToDbValue(request.Content))
             });
+
+            // Fetch book info for notifications
+            var rvBookSql = "SELECT TITLE, AUTHOR_ID FROM BOOKS WHERE ID = :bookId";
+            var rvBook = await _db.QuerySingleOrDefaultAsync(rvBookSql, new[] { new SqliteParameter("bookId", id) },
+                r => new { Title = r["TITLE"].ToString()!, AuthorId = Convert.ToInt64(r["AUTHOR_ID"]) });
+
+            // Notify reviewer
+            var stars = new string('★', request.Rating) + new string('☆', 5 - request.Rating);
+            await NotificationHelper.SendAsync(_db, userId,
+                "⭐ نظر شما ثبت شد",
+                $"نظر شما ({stars}) برای کتاب «{rvBook?.Title ?? ""}» با موفقیت ثبت شد.");
+
+            // Notify author
+            if (rvBook != null)
+                await NotificationHelper.SendAsync(_db, rvBook.AuthorId,
+                    "📝 نظر جدید دریافت شد",
+                    $"یک خواننده برای کتاب «{rvBook.Title}» نظر {stars} ثبت کرد.");
 
             return Ok(new { Message = "ثبت نظر با موفقیت انجام شد." });
         }

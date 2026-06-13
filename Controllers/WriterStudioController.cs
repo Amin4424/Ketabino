@@ -117,14 +117,8 @@ namespace Ketabino.Controllers
                 cmd.Parameters.Add(new SqliteParameter("cover", SqliteDbHelper.ToDbValue(request.CoverImage)));
                 cmd.Parameters.Add(new SqliteParameter("status", request.Status));
 
-                var idParam = new SqliteParameter("id", SqliteType.Integer)
-                {
-                    Direction = System.Data.ParameterDirection.Output
-                };
-                cmd.Parameters.Add(idParam);
-                await cmd.ExecuteNonQueryAsync();
-
-                long bookId = Convert.ToInt64(idParam.Value.ToString());
+                var scalarResult = await cmd.ExecuteScalarAsync();
+                long bookId = Convert.ToInt64(scalarResult);
 
                 // Insert Genres
                 if (request.GenreIds != null && request.GenreIds.Count > 0)
@@ -150,6 +144,76 @@ namespace Ketabino.Controllers
             }
         }
 
+        [HttpPut("book/{bookId}")]
+        public async Task<IActionResult> UpdateBook(long bookId, [FromBody] BookRequest request)
+        {
+            var forbidResult = CheckAuthorRole();
+            if (forbidResult != null) return forbidResult;
+
+            if (string.IsNullOrWhiteSpace(request.Title))
+            {
+                return BadRequest(new { Message = "عنوان کتاب الزامی است." });
+            }
+
+            var checkSql = "SELECT COUNT(*) FROM BOOKS WHERE ID = :bookId AND AUTHOR_ID = :authorId";
+            var ownsBook = Convert.ToInt32(await _db.ExecuteScalarAsync(checkSql, new[]
+            {
+                new SqliteParameter("bookId", bookId),
+                new SqliteParameter("authorId", CurrentUserId)
+            }));
+
+            if (ownsBook == 0) return Forbid();
+
+            using var connection = await _connectionProvider.CreateConnectionAsync();
+            using var transaction = connection.BeginTransaction();
+
+            try
+            {
+                var updateSql = @"
+                    UPDATE BOOKS
+                    SET TITLE = :title,
+                        DESCRIPTION = :desc,
+                        COVER_IMAGE = :cover,
+                        STATUS = :status,
+                        UPDATED_AT = CURRENT_TIMESTAMP
+                    WHERE ID = :bookId";
+
+                using var cmd = new SqliteCommand(updateSql, connection);
+                cmd.Transaction = transaction;
+                cmd.Parameters.Add(new SqliteParameter("title", request.Title));
+                cmd.Parameters.Add(new SqliteParameter("desc", SqliteDbHelper.ToDbValue(request.Description)));
+                cmd.Parameters.Add(new SqliteParameter("cover", SqliteDbHelper.ToDbValue(request.CoverImage)));
+                cmd.Parameters.Add(new SqliteParameter("status", request.Status));
+                cmd.Parameters.Add(new SqliteParameter("bookId", bookId));
+                await cmd.ExecuteNonQueryAsync();
+
+                using var deleteGenresCmd = new SqliteCommand("DELETE FROM BOOK_GENRES WHERE BOOK_ID = :bookId", connection);
+                deleteGenresCmd.Transaction = transaction;
+                deleteGenresCmd.Parameters.Add(new SqliteParameter("bookId", bookId));
+                await deleteGenresCmd.ExecuteNonQueryAsync();
+
+                if (request.GenreIds != null && request.GenreIds.Count > 0)
+                {
+                    foreach (var genreId in request.GenreIds)
+                    {
+                        using var genreCmd = new SqliteCommand("INSERT INTO BOOK_GENRES (BOOK_ID, GENRE_ID) VALUES (:bookId, :genreId)", connection);
+                        genreCmd.Transaction = transaction;
+                        genreCmd.Parameters.Add(new SqliteParameter("bookId", bookId));
+                        genreCmd.Parameters.Add(new SqliteParameter("genreId", genreId));
+                        await genreCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                transaction.Commit();
+                return Ok(new { Message = "کتاب با موفقیت بروزرسانی شد." });
+            }
+            catch (Exception ex)
+            {
+                transaction.Rollback();
+                return StatusCode(500, new { Message = "خطایی در هنگام بروزرسانی کتاب رخ داد.", Error = ex.Message });
+            }
+        }
+
         [HttpGet("book/{bookId}/chapters")]
         public async Task<IActionResult> GetBookChapters(long bookId)
         {
@@ -167,7 +231,7 @@ namespace Ketabino.Controllers
             if (ownsBook == 0) return Forbid();
 
             var sql = @"
-                SELECT ID, BOOK_ID, TITLE, SEQUENCE_NUMBER, PRICE, IS_FREE, STATUS, CREATED_AT 
+                SELECT ID, BOOK_ID, TITLE, CONTENT, SEQUENCE_NUMBER, PRICE, IS_FREE, STATUS, CREATED_AT 
                 FROM CHAPTERS 
                 WHERE BOOK_ID = :bookId 
                 ORDER BY SEQUENCE_NUMBER ASC";
@@ -182,7 +246,8 @@ namespace Ketabino.Controllers
                 IsFree = Convert.ToInt32(reader["IS_FREE"]) == 1,
                 Status = reader["STATUS"].ToString()!,
                 CreatedAt = SqliteDbHelper.GetUtcDateTime(reader["CREATED_AT"]),
-                IsPurchased = true // Author always has access to their own chapters
+                IsPurchased = true, // Author always has access to their own chapters
+                Content = reader["CONTENT"] == DBNull.Value ? null : reader["CONTENT"].ToString()
             });
 
             return Ok(chapters);
@@ -280,6 +345,34 @@ namespace Ketabino.Controllers
 
             await _db.ExecuteNonQueryAsync(updateSql, parameters);
             return Ok(new { Message = "فصل با موفقیت بروزرسانی شد." });
+        }
+
+        [HttpDelete("chapter/{chapterId}")]
+        public async Task<IActionResult> DeleteChapter(long chapterId)
+        {
+            var forbidResult = CheckAuthorRole();
+            if (forbidResult != null) return forbidResult;
+
+            var checkSql = @"
+                SELECT COUNT(*)
+                FROM CHAPTERS c
+                JOIN BOOKS b ON c.BOOK_ID = b.ID
+                WHERE c.ID = :chapterId AND b.AUTHOR_ID = :authorId";
+
+            var ownsChapter = Convert.ToInt32(await _db.ExecuteScalarAsync(checkSql, new[]
+            {
+                new SqliteParameter("chapterId", chapterId),
+                new SqliteParameter("authorId", CurrentUserId)
+            }));
+
+            if (ownsChapter == 0) return Forbid();
+
+            await _db.ExecuteNonQueryAsync("DELETE FROM CHAPTERS WHERE ID = :chapterId", new[]
+            {
+                new SqliteParameter("chapterId", chapterId)
+            });
+
+            return Ok(new { Message = "فصل با موفقیت حذف شد." });
         }
 
         [HttpGet("stats")]

@@ -208,9 +208,3 @@ Delete `ketabino.db` and restart the backend to recreate the database.
 - Backend: Change the port in `Properties/launchSettings.json`
 - Frontend: Set `PORT=3001` environment variable
 
-<!-- apply git patch -->
-
-code fix.patch
-git apply --3way fix.patch
-or
-git apply --reject --whitespace=fix fix.patch
